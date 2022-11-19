@@ -80,7 +80,7 @@ jar{
 }
 
 task deleteLast{
-    def fi = new File("$gameData/mods/MPTv2ModREDesktop.jar")
+    def fi = new File("$gameData/mods/TestDesktop.jar")
     if(fi.exists()){
 //        Class<?> fileSys = ClassLoader.getSystemClassLoader().loadClass("java.io.DefaultFileSystem");
 //        FileSystem system = (FileSystem)fileSys.getMethod("getFileSystem()").invoke(null, new Object[]{});
@@ -90,7 +90,7 @@ task deleteLast{
 }
 
 task debugMod{
-    def fi = new File("$rootDir/build/libs/MPTv2ModREDesktop.jar")
+    def fi = new File("$rootDir/build/libs/TestDesktop.jar")
     def debugLog = new File("$rootDir/build/libs/debug.properties")
     if(!debugLog.exists())debugLog.createNewFile()
 
@@ -131,7 +131,7 @@ task debugMod{
 
         try{
             if(!fi.exists())throw new RuntimeException("Missing Mod File")
-            if(!fi.renameTo("$gameData/mods/MPTv2ModREDesktop.jar")){
+            if(!fi.renameTo("$gameData/mods/TestDesktop.jar")){
                 throw new RuntimeException("Failed to replace the old version mod")
             }
 
