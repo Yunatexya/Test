@@ -1,9 +1,8 @@
+import java.time.Instant
+
 apply plugin: "java"
 
 version '1.0'
-
-targetCompatibility = 8
-sourceCompatibility = JavaVersion.VERSION_16
 
 sourceSets.main.java.srcDirs = ["src"]
 
@@ -12,52 +11,55 @@ repositories{
     maven{ url 'https://www.jitpack.io' }
 }
 
+
 ext{
     //the build number that this mod is made for
-    mindustryVersion = 'v140.1'
-    jabelVersion = "93fde537c7"
-    sdkRoot = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+    mindustryVersion = 'v139'
+    //version of SDK you will be using
+    sdkVersion = '30'
+    sdkRoot = System.getenv("ANDROID_HOME")
+    gameData = 'C:/Users/Administrator/AppData/Roaming/Mindustry'
+
+    doExec = { cmd ->
+        def proc = cmd.execute(null, new File("$buildDir/libs"))
+        proc.waitForProcessOutput(System.out, System.err)
+    }
 }
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
 //java 8 backwards compatibility flag
-allprojects{
-    tasks.withType(JavaCompile){
-        options.compilerArgs.addAll(['--release', '8'])
-    }
-}
+//allprojects{
+//    tasks.withType(JavaCompile){
+//        if(JavaVersion.current() != JavaVersion.VERSION_1_8){
+//            options.compilerArgs.addAll(['--release', '8'])
+//        }
+////
+////        doFirst {
+////            options.compilerArgs.addAll(['--release', '14', "--enable-preview"])
+////        }
+//    }
+//}
 
 dependencies{
+    compileOnly 'org.jetbrains:annotations:22.0.0'
+//    compileOnly "com.github.Anuken.Mindustry:annotations:$mindustryVersion"
     compileOnly "com.github.Anuken.Arc:arc-core:$mindustryVersion"
-    compileOnly "com.github.Anuken.MindustryJitpack:core:$mindustryVersion"
-
-    annotationProcessor "com.github.Anuken:jabel:$jabelVersion"
-}
-
-//force arc version
-configurations.all{
-    resolutionStrategy.eachDependency { details ->
-        if(details.requested.group == 'com.github.Anuken.Arc'){
-            details.useVersion "$mindustryVersion"
-        }
-    }
+    compileOnly "com.github.Anuken.Mindustry:core:$mindustryVersion"
 }
 
 task jarAndroid{
     dependsOn "jar"
-
     doLast{
-        if(!sdkRoot || !new File(sdkRoot).exists()) throw new GradleException("No valid Android SDK found. Ensure that ANDROID_HOME is set to your Android SDK directory.");
-
-        def platformRoot = new File("$sdkRoot/platforms/").listFiles().sort().reverse().find{ f -> new File(f, "android.jar").exists()}
-
-        if(!platformRoot) throw new GradleException("No android.jar found. Ensure that you have an Android platform installed.")
-
         //collect dependencies needed for desugaring
-        def dependencies = (configurations.compileClasspath.asList() + configurations.runtimeClasspath.asList() + [new File(platformRoot, "android.jar")]).collect{ "--classpath $it.path" }.join(" ")
+        def files = (configurations.compileClasspath.asList() + configurations.runtimeClasspath.asList() + [new File("E:/apps/Android/Sdk/platforms/android-30/android.jar")])
+        def dependencies = files.collect{ "--classpath $it.path" }.join(" ")
 
         //dex and desugar files - this requires d8 in your PATH
-        "d8 $dependencies --min-api 14 --output ${project.archivesBaseName}Android.jar ${project.archivesBaseName}Desktop.jar"
-            .execute(null, new File("$buildDir/libs")).waitForProcessOutput(System.out, System.err)
+//        String s = "E:/SDK_Tools/android-13/d8.bat $dependencies --min-api 14 --output ${project.archivesBaseName}Android.jar ${project.archivesBaseName}Desktop.jar";
+//        doExec(s.toString());
+        doExec "E:/apps/Android/Sdk/build-tools/30.0.2/d8.bat $dependencies --min-api 14 --output ${project.archivesBaseName}Android.jar ${project.archivesBaseName}Desktop.jar"
     }
 }
 
@@ -67,8 +69,8 @@ jar{
     from{
         configurations.runtimeClasspath.collect{ it.isDirectory() ? it : zipTree(it) }
     }
-
     from(rootDir){
+
         include "mod.hjson"
     }
 
@@ -77,7 +79,90 @@ jar{
     }
 }
 
-task deploy(type: Jar){
+task deleteLast{
+    def fi = new File("$gameData/mods/MPTv2ModREDesktop.jar")
+    if(fi.exists()){
+//        Class<?> fileSys = ClassLoader.getSystemClassLoader().loadClass("java.io.DefaultFileSystem");
+//        FileSystem system = (FileSystem)fileSys.getMethod("getFileSystem()").invoke(null, new Object[]{});
+
+        System.out.println("Delete Old:" + fi.delete())
+    }
+}
+
+task debugMod{
+    def fi = new File("$rootDir/build/libs/MPTv2ModREDesktop.jar")
+    def debugLog = new File("$rootDir/build/libs/debug.properties")
+    if(!debugLog.exists())debugLog.createNewFile()
+
+    doFirst {
+        try{
+
+            Reader fileReader = new FileReader(debugLog)
+            Properties property = new Properties()
+            property.load(fileReader)
+            Instant last
+
+            try {
+                def toEpochMilli = Long.parseLong(String.valueOf(property.get("lastInstant_toEpochMilli")))
+                last = Instant.ofEpochMilli(toEpochMilli)
+            }catch(e){
+                last = Instant.ofEpochMilli(0)
+            }
+
+            fileReader.close()
+
+
+            for (ProcessHandle p : ProcessHandle.allProcesses()){
+                if(p.info().startInstant().isPresent() && last == p.info().startInstant().get()){
+                    Runtime.getRuntime().exec("taskkill /PID " + p.pid())
+                    break
+                }
+            }
+        }catch(IOException e){
+            e.printStackTrace()
+        }
+    }
+
+    dependsOn jar
+    dependsOn deleteLast
+
+    doLast {
+        System.gc()
+
+        try{
+            if(!fi.exists())throw new RuntimeException("Missing Mod File")
+            if(!fi.renameTo("$gameData/mods/MPTv2ModREDesktop.jar")){
+                throw new RuntimeException("Failed to replace the old version mod")
+            }
+
+//            Process p = Runtime.getRuntime().exec("java -jar E:/Java_Projects/MDT_Mod_Project/NewHorizonMod/build/libs/Mindustry.jar")
+//
+//            Writer writer = new FileWriter(debugLog)
+//            Reader reader = new FileReader(debugLog)
+//            Properties properties = new Properties()
+//            properties.load(reader)
+//            properties.setProperty("lastInstant_toEpochMilli",  String.valueOf(p.info().startInstant().get().toEpochMilli()))
+//            properties.store(writer, "debug")
+//            reader.close()
+//            writer.close()
+        }catch(IOException io){
+            System.out.print(io)
+        }
+    }
+}
+
+task deploy(type : Jar){
+    def fi = new File("$rootDir/mod.hjson")
+    fi.withReader { reader ->
+        def lines = reader.readLines()
+        fi.withWriter { writer ->
+            lines.each { line ->
+                def check = line.split(":")[0] == "minGameVersion"
+                if(!check) writer.append("$line\r\n")
+            }
+            writer.append("minGameVersion: ${mindustryVersion.split("v")[1]}\r\n")
+        }
+    }
     dependsOn jarAndroid
     dependsOn jar
     archiveFileName = "${project.archivesBaseName}.jar"
@@ -85,9 +170,7 @@ task deploy(type: Jar){
     from{ [zipTree("$buildDir/libs/${project.archivesBaseName}Desktop.jar"), zipTree("$buildDir/libs/${project.archivesBaseName}Android.jar")] }
 
     doLast{
-        delete{
-            delete "$buildDir/libs/${project.archivesBaseName}Desktop.jar"
-            delete "$buildDir/libs/${project.archivesBaseName}Android.jar"
-        }
+        delete{ delete "$buildDir/libs/${project.archivesBaseName}Desktop.jar" }
+        delete{ delete "$buildDir/libs/${project.archivesBaseName}Android.jar" }
     }
 }
